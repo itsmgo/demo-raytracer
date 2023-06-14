@@ -1,0 +1,302 @@
+#version 430 core
+
+layout(local_size_x = 20, local_size_y = 20, local_size_z = 1) in;
+layout(rgba32f, binding = 0) uniform image2D imgOutput;
+layout(rgba32f, binding = 1) uniform image2D imgOutputHalf;
+
+struct Camera {
+  vec3 position;
+  vec3 front;
+  vec3 right;
+  vec3 up;
+  float zoom;
+};
+
+struct Ray {
+  vec3 origin;
+  vec3 direction;
+};
+
+struct Hit {
+  vec3 position;
+  vec3 normal;
+  float t;
+  bool frontFace;
+};
+
+uniform Camera camera;
+uniform samplerBuffer trianglesBuffer;
+uniform int currentSample;
+uniform int numTriangles;
+
+float FOV = radians(camera.zoom * 0.5);
+float focusDist = length(camera.position);
+float aperture = 0.030;
+
+const float MAX_DISTANCE = 999999;
+const float MIN_DISTANCE = 0.001;
+const int MAX_BOUNCES = 10;
+const float GAMMA = 2.0;
+
+int SEED = 1;
+
+// A single iteration of Bob Jenkins' One-At-A-Time hashing algorithm.
+uint hash(uint x) {
+  x += (x << 10u);
+  x ^= (x >> 6u);
+  x += (x << 3u);
+  x ^= (x >> 11u);
+  x += (x << 15u);
+  return x;
+}
+
+uint hash(uvec4 v) {
+  SEED++;
+  return hash(v.x ^ hash(v.y) ^ hash(v.z) ^ hash(SEED));
+}
+
+// Construct a float with half-open range [0:1] using low 23 bits.
+// All zeroes yields 0.0, all ones yields the next smallest representable value
+// below 1.0.
+float floatConstruct(uint m) {
+  const uint ieeeMantissa = 0x007FFFFFu; // binary32 mantissa bitmask
+  const uint ieeeOne = 0x3F800000u;      // 1.0 in IEEE binary32
+
+  m &= ieeeMantissa; // Keep only mantissa bits (fractional part)
+  m |= ieeeOne;      // Add fractional part to 1.0
+
+  float f = uintBitsToFloat(m); // Range [1:2]
+  return f - 1.0;               // Range [0:1]
+}
+
+// Pseudo-random value in half-open range [0:1].
+float random() {
+  SEED++;
+  return floatConstruct(hash(floatBitsToUint(vec4(
+      gl_GlobalInvocationID.x, gl_GlobalInvocationID.y, currentSample, SEED))));
+}
+
+vec3 randomUnitInSphere() {
+  while (true) {
+    vec3 point = vec3(random(), random(), random()) * 2 - vec3(1, 1, 1);
+    if (pow(length(point), 2) < 1)
+      return normalize(point);
+  }
+}
+
+vec2 randomInDisk() {
+  while (true) {
+    vec2 point = vec2(random(), random()) * 2 - vec2(1, 1);
+    if (pow(length(point), 2) < 1)
+      return point;
+  }
+}
+
+Hit hitSphere(vec3 center, float radius, Ray ray) {
+  vec3 oc = ray.origin - center;
+  float a = pow(length(ray.direction), 2);
+  float half_b = dot(oc, ray.direction);
+  float c = pow(length(oc), 2) - radius * radius;
+  float discriminant = half_b * half_b - a * c;
+
+  Hit hit;
+  if (discriminant < 0) {
+    hit.t = -1.0;
+    return hit;
+  }
+  hit.t = (-half_b - sqrt(discriminant)) / a;
+  hit.position = ray.origin + ray.direction * hit.t;
+  hit.normal = normalize(hit.position - center);
+  return hit;
+}
+
+Hit rayTriangleIntersect(Ray ray,                   // ray
+                         vec3 p0, vec3 p1, vec3 p2, // vertices positions
+                         vec3 n1, vec3 n2, vec3 n3) // vertices normals
+{
+  Hit hit;
+  // compute the plane's normal
+  vec3 p0p1 = p1 - p0;
+  vec3 p0p2 = p2 - p0;
+  // find area
+  vec3 N = cross(p0p1, p0p2);
+
+  // Step 1: finding P
+
+  // check if the ray and plane are parallel.
+  float NdotRayDirection = dot(N, ray.direction);
+  if (abs(NdotRayDirection) < MIN_DISTANCE) // almost 0
+  {
+    hit.t = -1;
+    return hit; // they are parallel so they don't intersect!
+  }
+
+  // compute d parameter
+  float d = -dot(N, p0);
+
+  // compute t
+  hit.t = -(dot(N, ray.origin) + d) / NdotRayDirection;
+
+  // check if the triangle is behind the ray
+  if (hit.t < 0)
+    return hit; // the triangle is behind
+
+  // compute the intersection point using equation 1
+  vec3 P = ray.origin + hit.t * ray.direction;
+
+  // Step 2: inside-outside test
+  vec3 C; // vector perpendicular to triangle's plane
+
+  // edge 0
+  vec3 p0P = P - p0;
+  C = cross(p0p1, p0P);
+  if (dot(N, C) < 0) {
+    hit.t = -1;
+    return hit;
+  } // P is on the right side
+
+  // edge 1
+  vec3 p1p2 = p2 - p1;
+  vec3 p1P = P - p1;
+  C = cross(p1p2, p1P);
+  float u = dot(N, C);
+  if (u < 0) {
+    hit.t = -1;
+    return hit;
+  } // P is on the right side
+
+  // edge 2
+  vec3 p2P = P - p2;
+  C = cross(-p0p2, p2P);
+  float v = dot(N, C);
+  if (v < 0) {
+    hit.t = -1;
+    return hit;
+  } // P is on the right side;
+
+  float denom = dot(N, N);
+  u /= denom;
+  v /= denom;
+
+  hit.position = P;
+  hit.normal = u * n1 + v * n2 + (1 - u - v) * n3; // interpolate normals
+  return hit;                                      // this ray hits the triangle
+}
+
+vec3 getBackgroundColor(Ray ray) {
+  float t = 0.5 * (ray.direction.y + 1.0);
+  return (1.0 - t) * vec3(1.0, 1.0, 1.0) + t * vec3(0.5, 0.7, 1.0);
+}
+
+Hit getClosestHit(Ray ray) {
+  Hit closestHit;
+  closestHit.t = MAX_DISTANCE;
+  // float numTriangles = texelFetch(trianglesBuffer, 0).x;
+  for (int i = 6; i < (numTriangles + 1) * 6; i += 6) { // for each triangle
+    // vertex 1
+    vec3 p1 = texelFetch(trianglesBuffer, i + 0).xyz;
+    vec3 n1 = vec3(texelFetch(trianglesBuffer, i + 0).a,
+                   texelFetch(trianglesBuffer, i + 1).xy);
+    vec2 t1 = vec2(texelFetch(trianglesBuffer, i + 1).z,
+                   texelFetch(trianglesBuffer, i + 1).a);
+
+    // vertex 2
+    vec3 p2 = texelFetch(trianglesBuffer, i + 2).xyz;
+    vec3 n2 = vec3(texelFetch(trianglesBuffer, i + 2).a,
+                   texelFetch(trianglesBuffer, i + 3).xy);
+    vec2 t2 = vec2(texelFetch(trianglesBuffer, i + 3).z,
+                   texelFetch(trianglesBuffer, i + 3).a);
+
+    // vertex 3
+    vec3 p3 = texelFetch(trianglesBuffer, i + 4).xyz;
+    vec3 n3 = vec3(texelFetch(trianglesBuffer, i + 4).a,
+                   texelFetch(trianglesBuffer, i + 5).xy);
+    vec2 t3 = vec2(texelFetch(trianglesBuffer, i + 5).z,
+                   texelFetch(trianglesBuffer, i + 5).a);
+
+    // Hit hit = rayTriangleIntersect(ray, p1, p2, p3, n1, n2, n3);
+    Hit hit = hitSphere(p1, length(p2 - p1), ray);
+    if (hit.t < MIN_DISTANCE || hit.t > closestHit.t) {
+      continue;
+    }
+    closestHit = hit;
+  }
+  if (closestHit.t == MAX_DISTANCE) {
+    closestHit.t = -1.0;
+    return closestHit;
+  }
+  return closestHit;
+}
+
+vec3 getRayColor(Ray ray) {
+  vec3 color = vec3(1.0, 1.0, 1.0);
+  Ray currentRay = ray;
+
+  for (int bounce = 0; bounce < MAX_BOUNCES; bounce++) {
+    Hit hit = getClosestHit(currentRay);
+
+    if (hit.t < MIN_DISTANCE) {
+      color *= getBackgroundColor(currentRay);
+      return color;
+    }
+
+    currentRay.origin = hit.position;
+    currentRay.direction = normalize(hit.normal + randomUnitInSphere());
+    color *= 0.5;
+  }
+  return color;
+}
+
+Ray getTexelRay(vec2 texelCoord) {
+  float x = texelCoord.x / (gl_NumWorkGroups.x * gl_WorkGroupSize.x) * 2 - 1;
+  float y = texelCoord.y / (gl_NumWorkGroups.y * gl_WorkGroupSize.y) * 2 - 1;
+
+  float aspectRatio = float(gl_NumWorkGroups.x) / gl_NumWorkGroups.y;
+
+  vec2 randomDisk = aperture * 0.5 * randomInDisk();
+  vec3 offset = camera.right * randomDisk.x + camera.up * randomDisk.y;
+
+  vec3 frontal = camera.front * focusDist;
+  vec3 vertical = camera.up * tan(FOV) * focusDist;
+  vec3 horizontal = camera.right * tan(FOV) * aspectRatio * focusDist;
+
+  vec3 P = camera.position + frontal + horizontal * x + vertical * y;
+
+  Ray ray;
+  ray.origin = camera.position + offset;
+  ray.direction = normalize(P - camera.position - offset);
+  return ray;
+}
+
+void main() {
+  ivec2 texelCoord = ivec2(gl_GlobalInvocationID.xy);
+  vec2 coord =
+      vec2(float(texelCoord.x) + random(), float(texelCoord.y) + random());
+  Ray ray = getTexelRay(coord);
+
+  vec3 color = getRayColor(ray);
+
+  if (currentSample == 1) {
+    imageStore(
+        imgOutputHalf, texelCoord,
+        vec4(pow(color, vec3(1.0 / GAMMA, 1.0 / GAMMA, 1.0 / GAMMA)), 1.0));
+    return;
+  }
+  if (currentSample == 2) {
+    imageStore(
+        imgOutput, texelCoord,
+        vec4(pow(color, vec3(1.0 / GAMMA, 1.0 / GAMMA, 1.0 / GAMMA)), 1.0));
+    return;
+  }
+
+  // Divide the color by the number of samples.
+  float scale = 1.0 / currentSample;
+  color *= scale;
+
+  vec4 accColor = imageLoad(imgOutput, texelCoord);
+  accColor = pow(accColor, vec4(GAMMA, GAMMA, GAMMA, 1.0));
+  accColor *= float(currentSample - 1) / float(currentSample);
+  accColor += vec4(color, 1.0);
+  accColor = pow(accColor, vec4(1.0 / GAMMA, 1.0 / GAMMA, 1.0 / GAMMA, 1.0));
+  imageStore(imgOutput, texelCoord, accColor);
+}
