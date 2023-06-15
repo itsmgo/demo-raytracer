@@ -28,6 +28,8 @@ uniform Camera camera;
 uniform samplerBuffer trianglesBuffer;
 uniform int currentSample;
 uniform int numTriangles;
+uniform int width;
+uniform int height;
 
 float FOV = radians(camera.zoom * 0.5);
 float focusDist = length(camera.position);
@@ -111,76 +113,38 @@ Hit hitSphere(vec3 center, float radius, Ray ray) {
 }
 
 Hit rayTriangleIntersect(Ray ray,                   // ray
-                         vec3 p0, vec3 p1, vec3 p2, // vertices positions
+                         vec3 p1, vec3 p2, vec3 p3, // vertices positions
                          vec3 n1, vec3 n2, vec3 n3) // vertices normals
 {
   Hit hit;
+  vec3 edge1 = p2 - p1;
+  vec3 edge2 = p3 - p1;
   // compute the plane's normal
-  vec3 p0p1 = p1 - p0;
-  vec3 p0p2 = p2 - p0;
-  // find area
-  vec3 N = cross(p0p1, p0p2);
-
-  // Step 1: finding P
-
-  // check if the ray and plane are parallel.
-  float NdotRayDirection = dot(N, ray.direction);
-  if (abs(NdotRayDirection) < MIN_DISTANCE) // almost 0
-  {
+  vec3 h = cross(ray.direction, edge2);
+  float a = dot(edge1, h);
+  if (a > -MIN_DISTANCE && a < MIN_DISTANCE) {
     hit.t = -1;
-    return hit; // they are parallel so they don't intersect!
+    return hit;
   }
-
-  // compute d parameter
-  float d = -dot(N, p0);
-
-  // compute t
-  hit.t = -(dot(N, ray.origin) + d) / NdotRayDirection;
-
-  // check if the triangle is behind the ray
-  if (hit.t < 0)
-    return hit; // the triangle is behind
-
-  // compute the intersection point using equation 1
-  vec3 P = ray.origin + hit.t * ray.direction;
-
-  // Step 2: inside-outside test
-  vec3 C; // vector perpendicular to triangle's plane
-
-  // edge 0
-  vec3 p0P = P - p0;
-  C = cross(p0p1, p0P);
-  if (dot(N, C) < 0) {
+  float f = 1.0 / a;
+  vec3 s = ray.origin - p1;
+  float u = f * dot(s, h);
+  if (u < 0.0 || u > 1.0) {
     hit.t = -1;
     return hit;
-  } // P is on the right side
-
-  // edge 1
-  vec3 p1p2 = p2 - p1;
-  vec3 p1P = P - p1;
-  C = cross(p1p2, p1P);
-  float u = dot(N, C);
-  if (u < 0) {
+  }
+  vec3 q = cross(s, edge1);
+  float v = f * dot(ray.direction, q);
+  if (v < 0.0 || u + v > 1.0) {
     hit.t = -1;
     return hit;
-  } // P is on the right side
-
-  // edge 2
-  vec3 p2P = P - p2;
-  C = cross(-p0p2, p2P);
-  float v = dot(N, C);
-  if (v < 0) {
-    hit.t = -1;
-    return hit;
-  } // P is on the right side;
-
-  float denom = dot(N, N);
-  u /= denom;
-  v /= denom;
-
-  hit.position = P;
-  hit.normal = u * n1 + v * n2 + (1 - u - v) * n3; // interpolate normals
-  return hit;                                      // this ray hits the triangle
+  }
+  hit.t = f * dot(edge2, q);
+  if (hit.t > MIN_DISTANCE) {
+    hit.position = ray.origin + ray.direction * hit.t;
+    hit.normal = (1 - u - v) * n1 + u * n2 + v * n3; // interpolate normals
+  }
+  return hit;
 }
 
 vec3 getBackgroundColor(Ray ray) {
@@ -197,25 +161,25 @@ Hit getClosestHit(Ray ray) {
     vec3 p1 = texelFetch(trianglesBuffer, i + 0).xyz;
     vec3 n1 = vec3(texelFetch(trianglesBuffer, i + 0).a,
                    texelFetch(trianglesBuffer, i + 1).xy);
-    vec2 t1 = vec2(texelFetch(trianglesBuffer, i + 1).z,
-                   texelFetch(trianglesBuffer, i + 1).a);
+    // vec2 t1 = vec2(texelFetch(trianglesBuffer, i + 1).z,
+    //                texelFetch(trianglesBuffer, i + 1).a);
 
     // vertex 2
     vec3 p2 = texelFetch(trianglesBuffer, i + 2).xyz;
     vec3 n2 = vec3(texelFetch(trianglesBuffer, i + 2).a,
                    texelFetch(trianglesBuffer, i + 3).xy);
-    vec2 t2 = vec2(texelFetch(trianglesBuffer, i + 3).z,
-                   texelFetch(trianglesBuffer, i + 3).a);
+    // vec2 t2 = vec2(texelFetch(trianglesBuffer, i + 3).z,
+    //                texelFetch(trianglesBuffer, i + 3).a);
 
     // vertex 3
     vec3 p3 = texelFetch(trianglesBuffer, i + 4).xyz;
     vec3 n3 = vec3(texelFetch(trianglesBuffer, i + 4).a,
                    texelFetch(trianglesBuffer, i + 5).xy);
-    vec2 t3 = vec2(texelFetch(trianglesBuffer, i + 5).z,
-                   texelFetch(trianglesBuffer, i + 5).a);
+    // vec2 t3 = vec2(texelFetch(trianglesBuffer, i + 5).z,
+    //                texelFetch(trianglesBuffer, i + 5).a);
 
-    // Hit hit = rayTriangleIntersect(ray, p1, p2, p3, n1, n2, n3);
-    Hit hit = hitSphere(p1, length(p2 - p1), ray);
+    Hit hit = rayTriangleIntersect(ray, p1, p2, p3, n1, n2, n3);
+    // Hit hit = hitSphere(p1, length(p2 - p1), ray);
     if (hit.t < MIN_DISTANCE || hit.t > closestHit.t) {
       continue;
     }
@@ -248,10 +212,10 @@ vec3 getRayColor(Ray ray) {
 }
 
 Ray getTexelRay(vec2 texelCoord) {
-  float x = texelCoord.x / (gl_NumWorkGroups.x * gl_WorkGroupSize.x) * 2 - 1;
-  float y = texelCoord.y / (gl_NumWorkGroups.y * gl_WorkGroupSize.y) * 2 - 1;
+  float x = texelCoord.x / width * 2 - 1;
+  float y = texelCoord.y / height * 2 - 1;
 
-  float aspectRatio = float(gl_NumWorkGroups.x) / gl_NumWorkGroups.y;
+  float aspectRatio = float(width) / height;
 
   vec2 randomDisk = aperture * 0.5 * randomInDisk();
   vec3 offset = camera.right * randomDisk.x + camera.up * randomDisk.y;
@@ -270,6 +234,9 @@ Ray getTexelRay(vec2 texelCoord) {
 
 void main() {
   ivec2 texelCoord = ivec2(gl_GlobalInvocationID.xy);
+  if (texelCoord.x > width || texelCoord.y > height)
+    return;
+
   vec2 coord =
       vec2(float(texelCoord.x) + random(), float(texelCoord.y) + random());
   Ray ray = getTexelRay(coord);

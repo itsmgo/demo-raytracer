@@ -98,6 +98,7 @@ public:
         setUpGBuffer();
 
         // set up buffer to store geo data
+        glGenBuffers(1, &trianglesSamplerBuffer);
         // setUpGeometryData();
 
         // set up compute texture
@@ -153,7 +154,6 @@ public:
         glBindRenderbuffer(GL_RENDERBUFFER, 0);
 
         // resize compute textures
-        glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, computeTexture);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
@@ -164,7 +164,6 @@ public:
 
         glBindImageTexture(0, computeTexture, 0, GL_FALSE, 0, GL_READ_WRITE, GL_RGBA32F);
 
-        glActiveTexture(GL_TEXTURE1);
         glBindTexture(GL_TEXTURE_2D, computeTextureHalf);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
@@ -354,12 +353,12 @@ public:
         // }
         currentSample++;
 
-        glBindTexture(GL_TEXTURE_BUFFER, vertexBufferTexture);
+        glBindTexture(GL_TEXTURE_BUFFER, trianglesBufferTexture);
         useRaytracingShader();
         if (currentSample == 1)
-            glDispatchCompute(width / 20 / 2, height / 20 / 2, 1);
+            glDispatchCompute(width / 2 + 1, height / 2 + 1, 1);
         else
-            glDispatchCompute(width / 20, height / 20, 1);
+            glDispatchCompute(width / computeGroups + 1, height / computeGroups + 1, 1);
         // make sure writing to image has finished before read
         glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
         glBindTexture(GL_TEXTURE_BUFFER, 0);
@@ -410,6 +409,16 @@ public:
         raytracingShader.setFloat("camera.zoom", Eye->Zoom);
         raytracingShader.setInt("currentSample", currentSample);
         raytracingShader.setInt("numTriangles", numTriangles);
+        if (currentSample == 1)
+        {
+            raytracingShader.setInt("width", width / 2);
+            raytracingShader.setInt("height", height / 2);
+        }
+        else
+        {
+            raytracingShader.setInt("width", width);
+            raytracingShader.setInt("height", height);
+        }
     }
 
     unsigned int addLine(glm::vec3 pointA, glm::vec3 pointB, glm::vec3 color)
@@ -507,8 +516,9 @@ private:
     unsigned int gPosition, gNormal, gColorSpec;
 
     // sampler buffer to store geo
-    unsigned int vertexSamplerBuffer, indexSamplerBuffer;
-    unsigned int vertexBufferTexture, indexBufferTexture;
+    unsigned int trianglesSamplerBuffer;
+    unsigned int trianglesBufferTexture;
+    unsigned int computeGroups = 20;
 
     // compute shader textures
     unsigned int computeTexture, computeTextureHalf;
@@ -693,18 +703,17 @@ private:
         // triangles[0].P1.position.x = triangles.size() - 1;
 
         // Create and bind the buffer object for triangles
-        glGenBuffers(1, &vertexSamplerBuffer);
-        glBindBuffer(GL_SHADER_STORAGE_BUFFER, vertexSamplerBuffer);
+        glBindBuffer(GL_SHADER_STORAGE_BUFFER, trianglesSamplerBuffer);
 
         // Allocate buffer memory and upload data
         glBufferData(GL_SHADER_STORAGE_BUFFER, triangles.size() * sizeof(Triangle), triangles.data(), GL_STATIC_DRAW);
 
         // Create the buffer texture
-        glGenTextures(1, &vertexBufferTexture);
-        glBindTexture(GL_TEXTURE_BUFFER, vertexBufferTexture);
+        glGenTextures(1, &trianglesBufferTexture);
+        glBindTexture(GL_TEXTURE_BUFFER, trianglesBufferTexture);
 
         // Associate the buffer object with the buffer texture
-        glTexBuffer(GL_TEXTURE_BUFFER, GL_RGBA32F, vertexSamplerBuffer);
+        glTexBuffer(GL_TEXTURE_BUFFER, GL_RGBA32F, trianglesSamplerBuffer);
 
         // Unbind the buffer object and texture
         glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
@@ -751,7 +760,7 @@ private:
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, width/2, height/2, 0, GL_RGBA,
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, width / 2, height / 2, 0, GL_RGBA,
                      GL_FLOAT, NULL);
 
         glBindImageTexture(1, computeTextureHalf, 0, GL_FALSE, 0, GL_READ_WRITE, GL_RGBA32F);
