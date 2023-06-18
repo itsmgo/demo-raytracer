@@ -95,22 +95,21 @@ int main()
     scene->addEye(camera);
 
     // objects
-    std::shared_ptr<Object> cube = std::make_shared<Object>(std::string("Cube"), IMPORTED, "../models/suzanne_lowpoly.obj");
-    cube->scale = glm::vec3(1.1f);
+    std::shared_ptr<Object> cube = std::make_shared<Object>(std::string("Cube"), IMPORTED, "../models/simpleCube.obj");
     scene->addObject(cube);
     scene->selectObject(cube);
-    // std::shared_ptr<Object> cube2 = std::make_shared<Object>(std::string("Cube2"), MESH);
-    // cube2->translate(glm::vec3(0.0f, 0.0f, 2.0f));
-    // scene->addObject(cube2);
-    // // scene->selectObject(cube2);
-    // std::shared_ptr<Object> cube3 = std::make_shared<Object>(std::string("Cube3"), MESH);
-    // cube3->translate(glm::vec3(-2.0f, 0.0f, 0.0f));
-    // scene->addObject(cube3);
+    std::shared_ptr<Object> cube2 = std::make_shared<Object>(std::string("Cube2"), MESH);
+    cube2->translate(glm::vec3(0.0f, 0.0f, 2.0f));
+    scene->addObject(cube2);
+    // scene->selectObject(cube2);
+    std::shared_ptr<Object> cube3 = std::make_shared<Object>(std::string("Cube3"), MESH);
+    cube3->translate(glm::vec3(-2.0f, 0.0f, 0.0f));
+    scene->addObject(cube3);
 
-    // lights
-    std::shared_ptr<Object> light = std::make_shared<Object>(std::string("Light"), LIGHT);
-    light->translate(glm::vec3(0.0f, 1.5f, 0.0f));
-    scene->addObject(light);
+    // // lights
+    // std::shared_ptr<Object> light = std::make_shared<Object>(std::string("Light"), LIGHT);
+    // light->translate(glm::vec3(0.0f, 1.5f, 0.0f));
+    // scene->addObject(light);
 
     // render loop
     while (!glfwWindowShouldClose(window))

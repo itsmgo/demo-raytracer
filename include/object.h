@@ -110,9 +110,9 @@ public:
         return model;
     }
 
-    std::shared_ptr<std::vector<Triangle>> getModelTriangles()
+    std::vector<Triangle> getModelTriangles()
     {
-        std::shared_ptr<std::vector<Triangle>> modelTriangles = std::make_shared<std::vector<Triangle>>();
+        std::vector<Triangle> modelTriangles = {};
         glm::mat4 model = getModelMatrix();
         Triangle tri;
         for (auto &&triangle : mesh->triangles)
@@ -126,12 +126,31 @@ public:
             tri.P3.Position = model * glm::vec4(triangle.P3.Position, 1.0);
             tri.P3.Normal = glm::normalize(glm::vec3(glm::mat4(glm::transpose(glm::inverse(model))) * glm::vec4(triangle.P3.Normal, 1.0)));
             tri.P3.TexCoords = triangle.P3.TexCoords;
-            modelTriangles->push_back(tri);
+            modelTriangles.push_back(tri);
         }
         return modelTriangles;
     }
 
+    std::shared_ptr<BoundingBox> getBoundingBox()
+    {
+        glm::mat4 model = getModelMatrix();
+        glm::vec3 vertexPosition = model * glm::vec4(mesh->vertices[0].Position, 1.0);
+        glm::vec3 minPoint = glm::vec4(vertexPosition, 1.0);
+        glm::vec3 maxPoint = glm::vec4(vertexPosition, 1.0);
+        for (size_t i = 1; i < mesh->vertices.size(); i++)
+        {
+            glm::vec3 vertexPosition = model * glm::vec4(mesh->vertices[i].Position, 1.0);
+            minPoint = glm::min(minPoint, vertexPosition);
+            maxPoint = glm::max(maxPoint, vertexPosition);
+        }
+        boundingBox->Pmax = maxPoint;
+        boundingBox->Pmin = minPoint;
+        return boundingBox;
+    }
+
 private:
+    std::shared_ptr<BoundingBox> boundingBox = std::make_shared<BoundingBox>();
+
     void generateCubeMesh()
     {
         std::vector<Vertex> vertices = {

@@ -4,6 +4,32 @@ layout(local_size_x = 20, local_size_y = 20, local_size_z = 1) in;
 layout(rgba32f, binding = 0) uniform image2D imgOutput;
 layout(rgba32f, binding = 1) uniform image2D imgOutputHalf;
 
+struct BVH_Node {
+  vec4 childrenId_ObjectInfo, pMin, pMax;
+};
+
+struct BVH_Object {
+  vec4 objInfo;
+};
+
+struct BVH_Triangle {
+  vec4 v1_pos_Nx, v1_nor_Txcoords, v2_pos_Nx, v2_nor_Txcoords, v3_pos_Nx,
+      v3_nor_Txcoords;
+};
+
+layout(std430, binding = 0) readonly buffer BVH_Nodes { BVH_Node nodes[]; }
+BVHTree;
+
+layout(std430, binding = 1) readonly buffer BVH_Objects {
+  BVH_Object objects[];
+}
+BVHObjects;
+
+layout(std430, binding = 2) readonly buffer BVH_Triangles {
+  BVH_Triangle triangles[];
+}
+BVHTriangles;
+
 struct Camera {
   vec3 position;
   vec3 front;
@@ -36,8 +62,8 @@ float focusDist = length(camera.position);
 float aperture = 0.030;
 
 const float MAX_DISTANCE = 999999;
-const float MIN_DISTANCE = 0.001;
-const int MAX_BOUNCES = 10;
+const float MIN_DISTANCE = 0.00001;
+const int MAX_BOUNCES = 8;
 const float GAMMA = 2.0;
 
 int SEED = 1;
@@ -152,31 +178,30 @@ vec3 getBackgroundColor(Ray ray) {
   return (1.0 - t) * vec3(1.0, 1.0, 1.0) + t * vec3(0.5, 0.7, 1.0);
 }
 
-Hit getClosestHit(Ray ray) {
+Hit getObjectClosestHit(Ray ray, int offsetTriangles, int countTriangles) {
   Hit closestHit;
   closestHit.t = MAX_DISTANCE;
-  // float numTriangles = texelFetch(trianglesBuffer, 0).x;
-  for (int i = 6; i < (numTriangles + 1) * 6; i += 6) { // for each triangle
+  for (int i = offsetTriangles; i < offsetTriangles + countTriangles; i++) {
     // vertex 1
-    vec3 p1 = texelFetch(trianglesBuffer, i + 0).xyz;
-    vec3 n1 = vec3(texelFetch(trianglesBuffer, i + 0).a,
-                   texelFetch(trianglesBuffer, i + 1).xy);
-    // vec2 t1 = vec2(texelFetch(trianglesBuffer, i + 1).z,
-    //                texelFetch(trianglesBuffer, i + 1).a);
+    vec3 p1 = BVHTriangles.triangles[i].v1_pos_Nx.xyz;
+    vec3 n1 = vec3(BVHTriangles.triangles[i].v1_pos_Nx.a,
+                   BVHTriangles.triangles[i].v1_nor_Txcoords.xy);
+    // vec2 t1 = vec2(BVHTriangles.triangles[i].pos_Nx.z,
+    //                BVHTriangles.triangles[i].pos_Nx.a);
 
     // vertex 2
-    vec3 p2 = texelFetch(trianglesBuffer, i + 2).xyz;
-    vec3 n2 = vec3(texelFetch(trianglesBuffer, i + 2).a,
-                   texelFetch(trianglesBuffer, i + 3).xy);
-    // vec2 t2 = vec2(texelFetch(trianglesBuffer, i + 3).z,
-    //                texelFetch(trianglesBuffer, i + 3).a);
+    vec3 p2 = BVHTriangles.triangles[i].v2_pos_Nx.xyz;
+    vec3 n2 = vec3(BVHTriangles.triangles[i].v2_pos_Nx.a,
+                   BVHTriangles.triangles[i].v2_nor_Txcoords.xy);
+    // vec2 t2 = vec2(BVHTriangles.triangles[i].pos_Nx.z,
+    //                BVHTriangles.triangles[i].pos_Nx.a);
 
     // vertex 3
-    vec3 p3 = texelFetch(trianglesBuffer, i + 4).xyz;
-    vec3 n3 = vec3(texelFetch(trianglesBuffer, i + 4).a,
-                   texelFetch(trianglesBuffer, i + 5).xy);
-    // vec2 t3 = vec2(texelFetch(trianglesBuffer, i + 5).z,
-    //                texelFetch(trianglesBuffer, i + 5).a);
+    vec3 p3 = BVHTriangles.triangles[i].v3_pos_Nx.xyz;
+    vec3 n3 = vec3(BVHTriangles.triangles[i].v3_pos_Nx.a,
+                   BVHTriangles.triangles[i].v3_nor_Txcoords.xy);
+    // vec2 t3 = vec2(BVHTriangles.triangles[i].pos_Nx.z,
+    //                BVHTriangles.triangles[i].pos_Nx.a);
 
     Hit hit = rayTriangleIntersect(ray, p1, p2, p3, n1, n2, n3);
     // Hit hit = hitSphere(p1, length(p2 - p1), ray);
@@ -192,12 +217,89 @@ Hit getClosestHit(Ray ray) {
   return closestHit;
 }
 
+Hit getMultipleObjectsClosestHit(Ray ray, int objOffset, int objCount) {
+  Hit closestHit;
+  Hit hit;
+  closestHit.t = MAX_DISTANCE;
+  for (int i = objOffset; i < objOffset + objCount; i++) {
+    hit = getObjectClosestHit(ray, // ray
+                              int(BVHObjects.objects[i].objInfo.x),
+                              int(BVHObjects.objects[i].objInfo.y));
+    if (hit.t < MIN_DISTANCE || hit.t > closestHit.t) {
+      continue;
+    }
+    closestHit = hit;
+  }
+  if (closestHit.t == MAX_DISTANCE) {
+    closestHit.t = -1.0;
+  }
+  return closestHit;
+}
+
+bool rayBoxIntersect(vec3 origin, vec3 dirfrac, vec3 pMin, vec3 pMax) {
+  float t1 = (pMin.x - origin.x) * dirfrac.x;
+  float t2 = (pMax.x - origin.x) * dirfrac.x;
+  float t3 = (pMin.y - origin.y) * dirfrac.y;
+  float t4 = (pMax.y - origin.y) * dirfrac.y;
+  float t5 = (pMin.z - origin.z) * dirfrac.z;
+  float t6 = (pMax.z - origin.z) * dirfrac.z;
+
+  float tmin = max(max(min(t1, t2), min(t3, t4)), min(t5, t6));
+  float tmax = min(min(max(t1, t2), max(t3, t4)), max(t5, t6));
+
+  return (tmax >= 0 && tmin <= tmax);
+}
+
+Hit traverseBVH(Ray ray) {
+  vec3 color = vec3(0);
+  Hit closestHit;
+  Hit hit;
+  closestHit.t = MAX_DISTANCE;
+  vec3 dirfrac = 1.0 / ray.direction;
+  // Follow ray through BVH nodes to find primitive intersections
+  int toVisitOffset = 0;
+  int currentNodeIndex = 0;
+  int nodesToVisit[64];
+  while (true) {
+    BVH_Node node = BVHTree.nodes[currentNodeIndex];
+    // Check ray against BVH node
+    if (rayBoxIntersect(ray.origin, dirfrac, node.pMin.xyz, node.pMax.xyz)) {
+      if (int(node.childrenId_ObjectInfo.x) < 0) { // LEAF
+        // Intersect ray with primitives in leaf BVH node
+        hit = getMultipleObjectsClosestHit(ray, // ray
+                                            int(node.childrenId_ObjectInfo.z),
+                                            int(node.childrenId_ObjectInfo.a));
+        if (hit.t < closestHit.t && hit.t > MIN_DISTANCE) {
+          closestHit = hit;
+        }
+        if (toVisitOffset == 0)
+          break;
+        currentNodeIndex = nodesToVisit[--toVisitOffset];
+        continue;
+      }
+      // NODE
+      // Put second BVH node on nodesToVisit stack, advance to near node
+      currentNodeIndex = int(node.childrenId_ObjectInfo.y);
+      nodesToVisit[toVisitOffset++] = int(node.childrenId_ObjectInfo.x);
+      continue;
+    }
+    if (toVisitOffset == 0) {
+      break;
+    }
+    currentNodeIndex = nodesToVisit[--toVisitOffset];
+  }
+  if (closestHit.t == MAX_DISTANCE) {
+    closestHit.t = -1.0;
+  }
+  return closestHit;
+}
+
 vec3 getRayColor(Ray ray) {
   vec3 color = vec3(1.0, 1.0, 1.0);
   Ray currentRay = ray;
 
   for (int bounce = 0; bounce < MAX_BOUNCES; bounce++) {
-    Hit hit = getClosestHit(currentRay);
+    Hit hit = traverseBVH(currentRay);
 
     if (hit.t < MIN_DISTANCE) {
       color *= getBackgroundColor(currentRay);

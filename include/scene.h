@@ -13,6 +13,7 @@
 #include <camera.h>
 #include <object.h>
 #include <compute_shader.h>
+#include <bvh_accelerator.h>
 
 enum View_Mode
 {
@@ -98,7 +99,12 @@ public:
         setUpGBuffer();
 
         // set up buffer to store geo data
+        glGenBuffers(1, &nodesSamplerBuffer);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, nodesSamplerBuffer);
+        glGenBuffers(1, &objectsSamplerBuffer);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, objectsSamplerBuffer);
         glGenBuffers(1, &trianglesSamplerBuffer);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, trianglesSamplerBuffer);
         // setUpGeometryData();
 
         // set up compute texture
@@ -353,7 +359,6 @@ public:
         // }
         currentSample++;
 
-        glBindTexture(GL_TEXTURE_BUFFER, trianglesBufferTexture);
         useRaytracingShader();
         if (currentSample == 1)
             glDispatchCompute(width / 2 + 1, height / 2 + 1, 1);
@@ -361,7 +366,6 @@ public:
             glDispatchCompute(width / computeGroups + 1, height / computeGroups + 1, 1);
         // make sure writing to image has finished before read
         glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
-        glBindTexture(GL_TEXTURE_BUFFER, 0);
     }
 
     void resetSampling()
@@ -516,8 +520,7 @@ private:
     unsigned int gPosition, gNormal, gColorSpec;
 
     // sampler buffer to store geo
-    unsigned int trianglesSamplerBuffer;
-    unsigned int trianglesBufferTexture;
+    unsigned int nodesSamplerBuffer, objectsSamplerBuffer, trianglesSamplerBuffer;
     unsigned int computeGroups = 20;
 
     // compute shader textures
@@ -525,6 +528,9 @@ private:
 
     // samples
     unsigned int currentSample = 0;
+
+    // acceration structure;
+    BVH_Accelerator accelerator = BVH_Accelerator();
 
     void generateGridVertices(float step, float size, int &divisions)
     {
@@ -679,45 +685,83 @@ private:
 
     void setUpGeometryData()
     {
-        // std::vector<Vertex> vertices = {};
-        // std::vector<unsigned int> indices = {};
+        accelerator.buildTree(Objects, 10);
+        auto tree = accelerator.getBVHTree();
+        auto ordObjects = accelerator.getOrderedObjects();
 
-        // for (auto &&obj : SelectedObjects)
-        // {
-        //     vertices.insert(vertices.end(), obj->mesh->vertices.begin(), obj->mesh->vertices.end());
-        //     indices.insert(indices.end(), obj->mesh->indices.begin(), obj->mesh->indices.end());
-        // }
-
-        std::vector<std::shared_ptr<std::vector<Triangle>>> ptrTriangles = {};
-        for (auto &&obj : Objects)
+        struct GPU_BVH_Node
         {
-            ptrTriangles.push_back(obj->getModelTriangles());
-        }
-        std::vector<Triangle> triangles = {};
-        for (const auto &ptrVec : ptrTriangles)
+            glm::vec4 childrenId_ObjectInfo, pMin, pMax;
+        };
+
+        struct GPU_BVH_Object
         {
-            triangles.insert(triangles.end(), ptrVec->begin(), ptrVec->end());
+            glm::vec4 objInfo;
+        };
+
+        struct GPU_BVH_Triangle
+        {
+            glm::vec4 v1_pos_Nx, v1_nor_Txcoords, v2_pos_Nx, v2_nor_Txcoords, v3_pos_Nx, v3_nor_Txcoords;
+        };
+
+        std::vector<GPU_BVH_Node> nodes(tree.size());
+        std::vector<GPU_BVH_Object> objects = {};
+        std::vector<GPU_BVH_Triangle> triangles = {};
+
+        std::cout << "BVH Nodes buffer: ";
+        GPU_BVH_Node bvhNode;
+        for (auto &&node : tree)
+        {
+            if (node->children[0] == nullptr)
+                bvhNode = GPU_BVH_Node{glm::vec4(-1, -1, node->objectOffset, node->objectCount), glm::vec4(node->bbox.Pmin, 0.0), glm::vec4(node->bbox.Pmax, 0.0)};
+            else
+                bvhNode = GPU_BVH_Node{glm::vec4(node->children[0]->id, node->children[1]->id, 0, 0), glm::vec4(node->bbox.Pmin, 0.0), glm::vec4(node->bbox.Pmax, 0.0)};
+            nodes[node->id] = bvhNode;
         }
-        triangles.insert(triangles.begin(), Triangle{Vertex{glm::vec3(triangles.size(), 0, 0), glm::vec3(0), glm::vec2(0)}, Vertex{}, Vertex{}});
+        for (auto &&bvhNode : nodes)
+        {
+            std::cout << bvhNode.childrenId_ObjectInfo.x << ", ";
+            std::cout << bvhNode.childrenId_ObjectInfo.y << ", ";
+            std::cout << bvhNode.childrenId_ObjectInfo.z << ", ";
+            std::cout << bvhNode.childrenId_ObjectInfo.a << " | ";
+        }
+        std::cout << std::endl;
 
-        // triangles[0].P1.position.x = triangles.size() - 1;
+        int currentOffset = 0;
+        std::cout << "Objects buffer: ";
+        for (auto &&obj : ordObjects)
+        {
+            auto modelTris = obj->getModelTriangles();
+            for (auto &&tri : modelTris)
+            {
+                triangles.push_back(GPU_BVH_Triangle{glm::vec4(tri.P1.Position, tri.P1.Normal.x),
+                                                     glm::vec4(tri.P1.Normal.y, tri.P1.Normal.z, tri.P1.TexCoords.x, tri.P1.TexCoords.y),
+                                                     glm::vec4(tri.P2.Position, tri.P2.Normal.x),
+                                                     glm::vec4(tri.P2.Normal.y, tri.P2.Normal.z, tri.P2.TexCoords.x, tri.P2.TexCoords.y),
+                                                     glm::vec4(tri.P3.Position, tri.P3.Normal.x),
+                                                     glm::vec4(tri.P3.Normal.y, tri.P3.Normal.z, tri.P3.TexCoords.x, tri.P3.TexCoords.y)});
+            }
+            GPU_BVH_Object bvhOb = GPU_BVH_Object{glm::vec4(currentOffset, (int)modelTris.size(), 0.0, 0.0)};
+            objects.push_back(bvhOb);
+            currentOffset = triangles.size();
+            std::cout << bvhOb.objInfo.x << ", " << bvhOb.objInfo.y << " | ";
+        }
+        std::cout << std::endl;
 
-        // Create and bind the buffer object for triangles
+        // Bind the buffer object for nodes
+        glBindBuffer(GL_SHADER_STORAGE_BUFFER, nodesSamplerBuffer);
+        glBufferData(GL_SHADER_STORAGE_BUFFER, nodes.size() * sizeof(GPU_BVH_Node), nodes.data(), GL_STATIC_DRAW);
+
+        // Bind the buffer object for objects
+        glBindBuffer(GL_SHADER_STORAGE_BUFFER, objectsSamplerBuffer);
+        glBufferData(GL_SHADER_STORAGE_BUFFER, objects.size() * sizeof(GPU_BVH_Object), objects.data(), GL_STATIC_DRAW);
+
+        // Bind the buffer object for triangles
         glBindBuffer(GL_SHADER_STORAGE_BUFFER, trianglesSamplerBuffer);
-
-        // Allocate buffer memory and upload data
-        glBufferData(GL_SHADER_STORAGE_BUFFER, triangles.size() * sizeof(Triangle), triangles.data(), GL_STATIC_DRAW);
-
-        // Create the buffer texture
-        glGenTextures(1, &trianglesBufferTexture);
-        glBindTexture(GL_TEXTURE_BUFFER, trianglesBufferTexture);
-
-        // Associate the buffer object with the buffer texture
-        glTexBuffer(GL_TEXTURE_BUFFER, GL_RGBA32F, trianglesSamplerBuffer);
+        glBufferData(GL_SHADER_STORAGE_BUFFER, triangles.size() * sizeof(GPU_BVH_Triangle), triangles.data(), GL_STATIC_DRAW);
 
         // Unbind the buffer object and texture
         glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
-        glBindTexture(GL_TEXTURE_BUFFER, 0);
 
         // // Create and bind the buffer object for indices
         // glGenBuffers(1, &indexSamplerBuffer);
@@ -738,7 +782,8 @@ private:
         // glBindTexture(GL_TEXTURE_BUFFER, 0);
     }
 
-    void setUpComputeTexture()
+    void
+    setUpComputeTexture()
     {
 
         glGenTextures(1, &computeTexture);

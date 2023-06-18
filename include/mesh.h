@@ -24,6 +24,44 @@ struct Triangle
     Vertex P3;
 };
 
+struct BoundingBox
+{
+    glm::vec3 Pmin;
+    glm::vec3 Pmax;
+
+    glm::vec3 diagonal() const { return Pmax - Pmin; }
+
+    int maximumExtent() const
+    {
+        glm::vec3 d = diagonal();
+        if (d.x > d.y && d.x > d.z)
+            return 0;
+        else if (d.y > d.z)
+            return 1;
+        else
+            return 2;
+    }
+
+    // returns (0,0,0) to (1,1,1): point relative to bounding box.
+    glm::vec3 offset(const glm::vec3 &point) const
+    {
+        glm::vec3 o = point - Pmin;
+        if (Pmax.x > Pmin.x)
+            o.x /= Pmax.x - Pmin.x;
+        if (Pmax.y > Pmin.y)
+            o.y /= Pmax.y - Pmin.y;
+        if (Pmax.z > Pmin.z)
+            o.z /= Pmax.z - Pmin.z;
+        return o;
+    }
+
+    float surfaceArea() const
+    {
+        glm::vec3 d = diagonal();
+        return 2.0f * (d.x * d.y + d.x * d.z + d.y * d.z);
+    }
+};
+
 class Mesh
 {
 public:

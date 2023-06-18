@@ -50,7 +50,6 @@ public:
             ImGui::SetNextWindowSize(ImVec2(width, height));
             ImGui::SetNextWindowPos(ImVec2(0, 0));
             ImGui::Begin("Main", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize);
-            ImGui::End;
         }
         ImGui::PopStyleVar(2);
         ImGui::DockSpace(ImGui::GetID("MyDockSpace"));
@@ -100,7 +99,7 @@ public:
                 items[i] = obj->name.c_str();
                 i++;
             }
-            bool newSelection = ImGui::ListBox("", &item_current, items, IM_ARRAYSIZE(items), 4);
+            bool newSelection = ImGui::ListBox("##selectionWidget", &item_current, items, IM_ARRAYSIZE(items), 4);
             if (newSelection)
             {
                 scene->deselectObjects();
@@ -124,7 +123,7 @@ public:
                 if (colorChange)
                     object->color = glm::vec3(color[0], color[1], color[2]);
             }
-            ImGui::SeparatorText("");
+            ImGui::SeparatorText("##emptyCubeAdd");
             if (ImGui::Button("Add cube"))
             {
                 std::shared_ptr<Object> cube = std::make_shared<Object>(std::string("Cube"), MESH);
@@ -140,6 +139,7 @@ public:
                 scene->resetSampling();
             ImGui::End();
         }
+        ImGui::End();
     }
 
     void render(int width, int height)
