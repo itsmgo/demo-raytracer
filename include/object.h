@@ -148,8 +148,34 @@ public:
         return boundingBox;
     }
 
+    std::vector<std::shared_ptr<BoundingBox>> getTrianglesBoundingBoxes()
+    {
+        if (triangleBoundingBoxes.size() > 0)
+        {
+            triangleBoundingBoxes.clear();
+        }
+        std::vector<Triangle> triangles = getModelTriangles();
+        glm::vec3 minPoint;
+        glm::vec3 maxPoint;
+        for (auto &&tri : triangles)
+        {
+            minPoint = tri.P1.Position;
+            maxPoint = tri.P1.Position;
+            minPoint = glm::min(minPoint, tri.P2.Position);
+            maxPoint = glm::max(maxPoint, tri.P2.Position);
+            minPoint = glm::min(minPoint, tri.P3.Position);
+            maxPoint = glm::max(maxPoint, tri.P3.Position);
+            std::shared_ptr<BoundingBox> triBoundingBox = std::make_shared<BoundingBox>();
+            triBoundingBox->Pmax = maxPoint;
+            triBoundingBox->Pmin = minPoint;
+            triangleBoundingBoxes.push_back(triBoundingBox);
+        }
+        return triangleBoundingBoxes;
+    }
+
 private:
     std::shared_ptr<BoundingBox> boundingBox = std::make_shared<BoundingBox>();
+    std::vector<std::shared_ptr<BoundingBox>> triangleBoundingBoxes = {};
 
     void generateCubeMesh()
     {

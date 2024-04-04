@@ -95,7 +95,7 @@ int main()
     scene->addEye(camera);
 
     // objects
-    std::shared_ptr<Object> cube = std::make_shared<Object>(std::string("Cube"), IMPORTED, "../models/simpleCube.obj");
+    std::shared_ptr<Object> cube = std::make_shared<Object>(std::string("Cube"), MESH);
     scene->addObject(cube);
     scene->selectObject(cube);
     std::shared_ptr<Object> cube2 = std::make_shared<Object>(std::string("Cube2"), MESH);

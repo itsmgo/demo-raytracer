@@ -685,9 +685,20 @@ private:
 
     void setUpGeometryData()
     {
-        accelerator.buildTree(Objects, 10);
+        std::vector<std::shared_ptr<BoundingBox>> bboxes;
+        std::vector<Triangle> modelTriangles;
+
+        for (auto &&obj : Objects)
+        {
+            auto objBboxes = obj->getTrianglesBoundingBoxes();
+            auto objTris = obj->getModelTriangles();
+            bboxes.insert(bboxes.begin(), objBboxes.begin(), objBboxes.end());
+            modelTriangles.insert(modelTriangles.begin(), objTris.begin(), objTris.end());
+        }
+
+        accelerator.buildTree(bboxes, 5);
         auto tree = accelerator.getBVHTree();
-        auto ordObjects = accelerator.getOrderedObjects();
+        auto ordObjectsIndices = accelerator.getOrderedObjects();
 
         struct GPU_BVH_Node
         {
@@ -718,33 +729,19 @@ private:
                 bvhNode = GPU_BVH_Node{glm::vec4(node->children[0]->id, node->children[1]->id, 0, 0), glm::vec4(node->bbox.Pmin, 0.0), glm::vec4(node->bbox.Pmax, 0.0)};
             nodes[node->id] = bvhNode;
         }
-        for (auto &&bvhNode : nodes)
-        {
-            std::cout << bvhNode.childrenId_ObjectInfo.x << ", ";
-            std::cout << bvhNode.childrenId_ObjectInfo.y << ", ";
-            std::cout << bvhNode.childrenId_ObjectInfo.z << ", ";
-            std::cout << bvhNode.childrenId_ObjectInfo.a << " | ";
-        }
         std::cout << std::endl;
 
         int currentOffset = 0;
         std::cout << "Objects buffer: ";
-        for (auto &&obj : ordObjects)
+        for (auto &&objIndex : ordObjectsIndices)
         {
-            auto modelTris = obj->getModelTriangles();
-            for (auto &&tri : modelTris)
-            {
-                triangles.push_back(GPU_BVH_Triangle{glm::vec4(tri.P1.Position, tri.P1.Normal.x),
-                                                     glm::vec4(tri.P1.Normal.y, tri.P1.Normal.z, tri.P1.TexCoords.x, tri.P1.TexCoords.y),
-                                                     glm::vec4(tri.P2.Position, tri.P2.Normal.x),
-                                                     glm::vec4(tri.P2.Normal.y, tri.P2.Normal.z, tri.P2.TexCoords.x, tri.P2.TexCoords.y),
-                                                     glm::vec4(tri.P3.Position, tri.P3.Normal.x),
-                                                     glm::vec4(tri.P3.Normal.y, tri.P3.Normal.z, tri.P3.TexCoords.x, tri.P3.TexCoords.y)});
-            }
-            GPU_BVH_Object bvhOb = GPU_BVH_Object{glm::vec4(currentOffset, (int)modelTris.size(), 0.0, 0.0)};
-            objects.push_back(bvhOb);
-            currentOffset = triangles.size();
-            std::cout << bvhOb.objInfo.x << ", " << bvhOb.objInfo.y << " | ";
+            auto tri = modelTriangles[objIndex];
+            triangles.push_back(GPU_BVH_Triangle{glm::vec4(tri.P1.Position, tri.P1.Normal.x),
+                                                 glm::vec4(tri.P1.Normal.y, tri.P1.Normal.z, tri.P1.TexCoords.x, tri.P1.TexCoords.y),
+                                                 glm::vec4(tri.P2.Position, tri.P2.Normal.x),
+                                                 glm::vec4(tri.P2.Normal.y, tri.P2.Normal.z, tri.P2.TexCoords.x, tri.P2.TexCoords.y),
+                                                 glm::vec4(tri.P3.Position, tri.P3.Normal.x),
+                                                 glm::vec4(tri.P3.Normal.y, tri.P3.Normal.z, tri.P3.TexCoords.x, tri.P3.TexCoords.y)});
         }
         std::cout << std::endl;
 

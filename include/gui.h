@@ -14,7 +14,7 @@ public:
     // gui
     bool showSettingsWindow = true;
     bool showSceneWindow = true;
-    int sceneViewWidth = 800;
+    int sceneViewWidth = 1800;
     int sceneViewHeight = 600;
 
     // constructor

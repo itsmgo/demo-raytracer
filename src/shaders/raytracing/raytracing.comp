@@ -266,9 +266,9 @@ Hit traverseBVH(Ray ray) {
     if (rayBoxIntersect(ray.origin, dirfrac, node.pMin.xyz, node.pMax.xyz)) {
       if (int(node.childrenId_ObjectInfo.x) < 0) { // LEAF
         // Intersect ray with primitives in leaf BVH node
-        hit = getMultipleObjectsClosestHit(ray, // ray
-                                            int(node.childrenId_ObjectInfo.z),
-                                            int(node.childrenId_ObjectInfo.a));
+        hit = getObjectClosestHit(ray, // ray
+                                  int(node.childrenId_ObjectInfo.z),
+                                  int(node.childrenId_ObjectInfo.a));
         if (hit.t < closestHit.t && hit.t > MIN_DISTANCE) {
           closestHit = hit;
         }

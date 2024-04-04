@@ -34,10 +34,10 @@ public:
     // constructor
     BVH_Accelerator()
     {
-        std::cout << "Hola BVH" << std::endl;
+        // std::cout << "Hola BVH" << std::endl;
     }
 
-    void buildTree(std::vector<std::shared_ptr<Object>> objects, int maxNodeItems)
+    void buildTree(std::vector<std::shared_ptr<BoundingBox>> objects, int maxNodeItems)
     {
         if (root != nullptr)
         {
@@ -49,15 +49,15 @@ public:
 
         for (size_t i = 0; i < objects.size(); i++)
         {
-            items.push_back(BVH_Item(i, *objects[i]->getBoundingBox()));
+            items.push_back(BVH_Item(i, *objects[i]));
         }
         this->maxNodeItems = maxNodeItems;
 
-        std::cout << "Building BVH" << std::endl;
+        // std::cout << "Building BVH" << std::endl;
         root = recursiveBuild(0, objects.size(), objects);
     }
 
-    std::shared_ptr<BVH_Node> recursiveBuild(int start, int end, std::vector<std::shared_ptr<Object>> objects)
+    std::shared_ptr<BVH_Node> recursiveBuild(int start, int end, std::vector<std::shared_ptr<BoundingBox>> objects)
     {
         // Compute bounds of all primitives in BVH node
         BoundingBox bbox = items[start].boundingBox;
@@ -66,10 +66,10 @@ public:
 
         int nItems = end - start;
 
-        std::cout << "Spliting between " << end << ", " << start << std::endl;
-        std::cout << "Total bbox (" << bbox.Pmin.x << ", " << bbox.Pmin.y << ", " << bbox.Pmin.z << ")";
-        std::cout << ", (" << bbox.Pmax.x << ", " << bbox.Pmax.y << ", " << bbox.Pmax.z << ")" << std::endl;
-        std::cout << "Surface: " << bbox.surfaceArea() << std::endl;
+        // std::cout << "Spliting between " << end << ", " << start << std::endl;
+        // std::cout << "Total bbox (" << bbox.Pmin.x << ", " << bbox.Pmin.y << ", " << bbox.Pmin.z << ")";
+        // std::cout << ", (" << bbox.Pmax.x << ", " << bbox.Pmax.y << ", " << bbox.Pmax.z << ")" << std::endl;
+        // std::cout << "Surface: " << bbox.surfaceArea() << std::endl;
 
         if (nItems == 1)
         {
@@ -78,7 +78,7 @@ public:
             for (int i = start; i < end; ++i)
             {
                 int itemIndex = items[i].index;
-                orderedObjects.push_back(objects[itemIndex]);
+                orderedObjects.push_back(itemIndex);
             }
             return createLeaf(firstItemOffset, nItems, bbox);
         }
@@ -87,18 +87,18 @@ public:
         BoundingBox centerBbox{items[start].center, items[start].center};
         for (int i = start + 1; i < end; ++i)
             centerBbox = getTotalBoundingBox(centerBbox, items[i].center);
-        std::cout << "Centers bbox (" << centerBbox.Pmin.x << ", " << centerBbox.Pmin.y << ", " << centerBbox.Pmin.z << ")";
-        std::cout << ", (" << centerBbox.Pmax.x << ", " << centerBbox.Pmax.y << ", " << centerBbox.Pmax.z << ")" << std::endl;
+        // std::cout << "Centers bbox (" << centerBbox.Pmin.x << ", " << centerBbox.Pmin.y << ", " << centerBbox.Pmin.z << ")";
+        // std::cout << ", (" << centerBbox.Pmax.x << ", " << centerBbox.Pmax.y << ", " << centerBbox.Pmax.z << ")" << std::endl;
         int dim = centerBbox.maximumExtent();
         if (centerBbox.Pmax[dim] == centerBbox.Pmin[dim])
         {
             // Create leaf node
-            std::cout << "No dimension." << std::endl;
+            // std::cout << "No dimension." << std::endl;
             int firstItemOffset = orderedObjects.size();
             for (int i = start; i < end; ++i)
             {
                 int itemIndex = items[i].index;
-                orderedObjects.push_back(objects[itemIndex]);
+                orderedObjects.push_back(itemIndex);
             }
             return createLeaf(firstItemOffset, nItems, bbox);
         }
@@ -115,14 +115,14 @@ public:
                              {
                                  return a.center[dim] < b.center[dim];
                              });
-            std::cout << "Few items. Rearranged items: ";
-            for (int i = start; i < end; ++i)
-            {
-                std::cout << "(" << items[i].index << ", " << items[i].center[dim] << ") > ";
-            }
-            std::cout << std::endl;
+            // std::cout << "Few items. Rearranged items: ";
+            // for (int i = start; i < end; ++i)
+            // {
+                // std::cout << "(" << items[i].index << ", " << items[i].center[dim] << ") > ";
+            // }
+            // std::cout << std::endl;
 
-            std::cout << "Creating intermediate node..." << std::endl;
+            // std::cout << "Creating intermediate node..." << std::endl;
             int nodeId = totalNodes++;
             return createNode(nodeId,
                               recursiveBuild(start, mid, objects),
@@ -147,7 +147,10 @@ public:
             if (b == nBuckets)
                 b = nBuckets - 1;
             buckets[b].count++;
-            buckets[b].boundingBox = getTotalBoundingBox(buckets[b].boundingBox, items[i].boundingBox);
+            if (buckets[b].count == 1)
+                buckets[b].boundingBox = items[i].boundingBox;
+            else
+                buckets[b].boundingBox = getTotalBoundingBox(buckets[b].boundingBox, items[i].boundingBox);
         }
 
         // Compute costs for splitting after each bucket
@@ -170,24 +173,24 @@ public:
             cost[i] = .125f + (count0 * b0.surfaceArea() +
                                count1 * b1.surfaceArea()) /
                                   bbox.surfaceArea();
-            std::cout << "Cost: " << count0 * b0.surfaceArea() << ", " << count1 * b1.surfaceArea() << ", " << bbox.surfaceArea() << ", "
-                      << cost[i] << std::endl;
+            // std::cout << "Cost: " << count0 * b0.surfaceArea() << ", " << count1 * b1.surfaceArea() << ", " << bbox.surfaceArea() << ", "
+                    //   << cost[i] << std::endl;
         }
 
         // Find bucket to split at that minimizes SAH metric
         float minCost = cost[0];
         int minCostSplitBucket = 0;
-        std::cout << "Costs: ";
+        // std::cout << "Costs: ";
         for (int i = 1; i < nBuckets - 1; ++i)
         {
-            std::cout << cost[i] << ", ";
+            // std::cout << cost[i] << ", ";
             if (cost[i] < minCost)
             {
                 minCost = cost[i];
                 minCostSplitBucket = i;
             }
         }
-        std::cout << std::endl;
+        // std::cout << std::endl;
 
         // Either create leaf or split primitives at selected SAH bucket
         float leafCost = nItems;
@@ -203,12 +206,12 @@ public:
                                                 return b <= minCostSplitBucket;
                                             });
             mid = pmid - &items[0];
-            if (nItems > maxNodeItems)
-                std::cout << "Too much items. Spliting at " << mid << std::endl;
-            if (minCost < leafCost)
-                std::cout << "Bucket intersection costs less. Spliting at " << mid << std::endl;
+            // if (nItems > maxNodeItems)
+                // std::cout << "Too much items. Spliting at " << mid << std::endl;
+            // if (minCost < leafCost)
+                // std::cout << "Bucket intersection costs less. Spliting at " << mid << std::endl;
 
-            std::cout << "Creating intermediate node..." << std::endl;
+            // std::cout << "Creating intermediate node..." << std::endl;
             int nodeId = totalNodes++;
             return createNode(nodeId,
                               recursiveBuild(start, mid, objects),
@@ -217,12 +220,12 @@ public:
         else
         {
             // Create leaf node
-            std::cout << "Expensive bucket intersection." << std::endl;
+            // std::cout << "Expensive bucket intersection." << std::endl;
             int firstItemOffset = orderedObjects.size();
             for (int i = start; i < end; ++i)
             {
                 int itemIndex = items[i].index;
-                orderedObjects.push_back(objects[itemIndex]);
+                orderedObjects.push_back(itemIndex);
             }
             return createLeaf(firstItemOffset, nItems, bbox);
         }
@@ -230,18 +233,18 @@ public:
 
     std::vector<std::shared_ptr<BVH_Node>> getBVHTree()
     {
-        std::cout << "Starting BVH tree" << std::endl;
+        // std::cout << "Starting BVH tree" << std::endl;
         return getBVHSubTree(root);
     }
 
-    std::vector<std::shared_ptr<Object>> getOrderedObjects()
+    std::vector<int> getOrderedObjects()
     {
         return orderedObjects;
     }
 
 private:
     std::vector<BVH_Item> items;
-    std::vector<std::shared_ptr<Object>> orderedObjects;
+    std::vector<int> orderedObjects;
     int maxNodeItems;
     int totalNodes = 0;
 
@@ -258,7 +261,7 @@ private:
         node->bbox = bbox;
         node->children[0] = nullptr;
         node->children[1] = nullptr;
-        std::cout << "Created BVH leaf: " << node->id << " with object offset + count: " << node->objectOffset << ", " << node->objectCount << std::endl;
+        // std::cout << "Created BVH leaf: " << node->id << " with object offset + count: " << node->objectOffset << ", " << node->objectCount << std::endl;
         return node;
     }
 
@@ -270,7 +273,7 @@ private:
         node->children[1] = c1;
         node->bbox = getTotalBoundingBox(c0->bbox, c1->bbox);
         node->objectCount = 0;
-        std::cout << "Created BVH node: " << node->id << " with children: " << c0->id << ", " << c1->id << std::endl;
+        // std::cout << "Created BVH node: " << node->id << " with children: " << c0->id << ", " << c1->id << std::endl;
         return node;
     }
 
