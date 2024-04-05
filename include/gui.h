@@ -26,7 +26,7 @@ public:
         (void)io;
         io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;         // Enable Keyboard Controls
         io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;          // Enable Gamepad Controls
-        ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_DockingEnable; // Enable docking
+        // ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_DockingEnable; // Enable docking
 
         // Setup Dear ImGui style
         ImGui::StyleColorsDark();
@@ -52,11 +52,11 @@ public:
             ImGui::Begin("Main", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize);
         }
         ImGui::PopStyleVar(2);
-        ImGui::DockSpace(ImGui::GetID("MyDockSpace"));
+        // ImGui::DockSpace(ImGui::GetID("MyDockSpace"));
 
         if (showSceneWindow)
         {
-            ImGui::Begin("Scene", &showSceneWindow, ImGuiWindowFlags_DockNodeHost);
+            ImGui::Begin("Scene", &showSceneWindow);
             ImGui::BeginChild("GameRender");
             // Get the size of the child (i.e. the whole draw size of the windows).
             ImVec2 view = ImGui::GetWindowSize();
@@ -73,7 +73,7 @@ public:
 
         if (showSettingsWindow)
         {
-            ImGui::Begin("Settings", &showSettingsWindow, ImGuiWindowFlags_DockNodeHost);
+            ImGui::Begin("Settings", &showSettingsWindow);
             ImGui::Text("Application average %.3f ms/frame (%.1f FPS)",
                         1000.0 / double(ImGui::GetIO().Framerate), double(ImGui::GetIO().Framerate));
             ImGui::Text("%.3f ms/frame", deltaTime * 1000.0f);

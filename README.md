@@ -11,7 +11,10 @@ A static screenshot of the raytracer renderer.
 ![Raytracer](./docs/raytracer1.png) 
 
 A custom shader used for debugging purposes.
-![custom](./docs/custom.png) 
+![Custom](./docs/custom.png) 
+
+Suzanne imported to the renderer.
+![Suzanne](./docs/raytracer2.png)
 
 ## Features
 
@@ -25,16 +28,45 @@ A custom shader used for debugging purposes.
 To get started with the raytracer renderer, follow these steps:
 
 1. Clone the Repository: Clone the repository to your local machine.
+2. Create an `external` folder with the external dependencies source code.
 2. Build the Project: Build the project using your preferred build system (e.g., CMake, Makefile).
-3. Define Scene: Define the scene you want to render by specifying the geometry, materials, lights, and camera parameters in a scene description file.
-4. Run Renderer: Run the renderer executable with the scene description file as input.
+4. Run Renderer: Run the renderer executable.
 
 ## Dependencies
 
 This project depends on the following external libraries:
-- glad
-- glm
-- imgui (docking branch)
-- glfw3 
-- assimp
+- [glad](https://glad.dav1d.de/)
+- [glm](https://github.com/g-truc/glm)
+- [imgui](https://github.com/ocornut/imgui)
+- [glfw3](https://www.glfw.org/) 
+- [assimp](https://github.com/assimp/assimp)
+
+## Controls
+
+**View**:
+- Orbit the scene with the mouse middle button.
+- Zoom in and out with the mouse wheel.
+
+**Transform**:
+- `g` to move selected object.
+- `g` + `x` to restrict movement to the X axis.
+- `g` + `y` to restrict movement to the Y axis.
+- `g` + `z` to restrict movement to the Z axis.
+- `r` to rotate selected object.
+- `r` + `x` to restrict rotation to the X axis.
+- `r` + `y` to restrict rotation to the Y axis.
+- `r` + `z` to restrict rotation to the Z axis.
+- `s` to scale selected object.
+- `s` + `x` to restrict scaling to the X axis.
+- `s` + `y` to restrict scaling to the Y axis.
+- `s` + `z` to restrict scaling to the Z axis.
+
+**Switch rendering mode**:
+- `m` to toggle between raytracer and workbench rendering engines.
+
+## References
+
+- [Learn OpenGL](https://learnopengl.com/)
+- [Physically Based Rendering: From Theory To Implementation](https://www.pbr-book.org/) 
+
 
